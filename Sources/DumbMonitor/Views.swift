@@ -1,0 +1,198 @@
+// SPDX-License-Identifier: MPL-2.0
+import AppKit
+import S9InputControl
+import SwiftUI
+
+struct ControlsView: View {
+    @ObservedObject var model: MonitorModel
+    let settings: () -> Void
+    let hide: () -> Void
+
+    var body: some View {
+        VStack(spacing: 12) {
+            if model.configured {
+                HStack(spacing: 6) {
+                    MuteButton(muted: model.muted, action: model.toggleMute).frame(width: 20, height: 20)
+                    ContinuousPanelSlider(value: Binding(get: { model.volume }, set: model.setVolume),
+                        range: 0...max(model.volumeLimit, model.volume), label: L("Volume"))
+                        .help("\(model.volume) / \(model.volumeLimit)")
+                    controlValue(model.volume, maximum: model.volumeLimit)
+                }
+                .disabled(!model.connected)
+                HStack(spacing: 6) {
+                    Image(systemName: "sun.max.fill").frame(width: 20).foregroundStyle(.secondary)
+                    ContinuousPanelSlider(value: Binding(get: { model.brightness }, set: model.setBrightness),
+                        range: 0...50, label: L("Brightness"))
+                        .help("\(model.brightness) / 50")
+                    controlValue(model.brightness, maximum: 50)
+                }
+                .disabled(!model.connected)
+                HStack(spacing: 6) {
+                    Group {
+                        if model.inputConfiguration.sources.count <= 2,
+                           model.inputConfiguration.sources.map(\.name).joined().count <= 20 {
+                            InputSelector(sources: model.inputConfiguration.sources, selection: model.input, select: model.setInput)
+                        } else {
+                            InputMenu(sources: model.inputConfiguration.sources, selection: model.input, select: model.setInput)
+                                .frame(maxWidth: .infinity)
+                        }
+                    }.disabled(!model.connected)
+                    Spacer(minLength: 2)
+                    actions
+                }
+                if let error = model.error {
+                    Button { Task { await model.refresh() } } label: {
+                        Label(L("Reconnect"), systemImage: "arrow.clockwise")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.plain).foregroundStyle(.secondary).help(error)
+                }
+            } else {
+                HStack {
+                    Button(L("Connect Monitor…"), action: settings)
+                    Spacer()
+                    actions
+                }
+            }
+        }
+        .padding(.vertical, 14)
+        .padding(.horizontal, 12)
+        .frame(width: ControlPanelLayout.width)
+        .focusEffectDisabled()
+    }
+
+    private func controlValue(_ value: Int, maximum: Int) -> some View {
+        // Reserve only the required digits, keeping the slider still as its
+        // value changes. Leading alignment keeps the number close to the bar.
+        Text("\(max(value, maximum))/\(maximum)").hidden()
+            .overlay(alignment: .leading) { Text("\(value)/\(maximum)") }
+            .font(.system(size: 14, weight: .medium)).monospacedDigit()
+            .foregroundStyle(.primary).fixedSize().accessibilityHidden(true)
+    }
+
+    private var actions: some View {
+        PanelActions(settings: settings, hide: hide).frame(width: 20, height: 22)
+    }
+}
+
+struct SettingsView: View {
+    @ObservedObject var model: MonitorModel
+    @ObservedObject var shortcuts: GlobalShortcutManager
+    @ObservedObject var audio: AudioOutputMonitor
+    @ObservedObject var focus: DisplayFocusMonitor
+    let clearLocalData: () -> Void
+    @State private var editingInputs = false
+
+    var body: some View {
+        Form {
+            Section {
+                HStack {
+                    TextField(L("Monitor address"), text: $model.host)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit(model.connect)
+                    Button(model.configured ? L("Update") : L("Connect"), action: model.connect)
+                        .disabled(model.pairing || model.working)
+                }
+                if model.pairing {
+                    HStack { ProgressView().controlSize(.small); Text(L("Connecting. Check the monitor for an approval prompt…")).font(.caption) }
+                }
+                if let error = model.error { Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
+            }
+            Section {
+                Toggle(L("Launch at login (hidden icon)"), isOn: Binding(get: { model.loginEnabled }, set: model.updateLogin))
+                integerRow(L("Volume limit"), value: $model.volumeLimit, range: 1...100)
+            }
+            Section(L("Keyboard")) {
+                Toggle(L("Volume keys"), isOn: $model.volumeKeys)
+                integerRow(L("Volume step"), value: $model.volumeStep, range: 1...100)
+                Picker(L("Monitor audio output"), selection: $model.audioUID) {
+                    Text(L("Choose…")).tag("")
+                    ForEach(audio.outputs) { Text($0.name).tag($0.id) }
+                    if !model.audioUID.isEmpty, !audio.outputs.contains(where: { $0.id == model.audioUID }) {
+                        Text(L("Monitor (disconnected)")).tag(model.audioUID)
+                    }
+                }
+                .disabled(!model.volumeKeys)
+                Toggle(L("Brightness keys"), isOn: $model.brightnessKeys)
+                integerRow(L("Brightness step"), value: $model.brightnessStep, range: 1...50)
+                Picker(L("Monitor display"), selection: $model.displayUUID) {
+                    Text(L("Choose…")).tag("")
+                    ForEach(focus.displays) { Text($0.name).tag($0.id) }
+                    if !model.displayUUID.isEmpty, !focus.displays.contains(where: { $0.id == model.displayUUID }) {
+                        Text(L("Monitor (disconnected)")).tag(model.displayUUID)
+                    }
+                }
+                if (model.volumeKeys || model.brightnessKeys || model.inputMediaKeys) && !model.mediaKeysRunning {
+                    Button(L("Allow Accessibility…")) {
+                        model.updateMediaKeys(requestPermission: true)
+                        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
+                    }
+                }
+                Text(L("⇧⌥ adjusts by 1. Volume follows audio output; brightness follows the active display."))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section(L("Input sources")) {
+                ForEach(model.inputConfiguration.sources) { source in
+                    shortcutRow(source.name, value: Binding(get: {
+                        model.inputConfiguration.sources.first(where: { $0.id == source.id })?.shortcut ?? ""
+                    }, set: { shortcut in
+                        var configuration = model.inputConfiguration
+                        guard let index = configuration.sources.firstIndex(where: { $0.id == source.id }) else { return }
+                        configuration.sources[index].shortcut = shortcut
+                        model.updateInputConfiguration(configuration)
+                    }))
+                }
+                Button(L("Edit Input Sources…")) { editingInputs = true }
+                Toggle(L("Media keys for input switching"), isOn: $model.inputMediaKeys)
+                if model.inputMediaKeys {
+                    mediaSourcePicker(L("⌃⌘ + Volume Down"), slot: .volumeDown)
+                    mediaSourcePicker(L("⌃⌘ + Volume Up"), slot: .volumeUp)
+                }
+                if let message = shortcuts.registrationMessage { Text(message).font(.caption).foregroundStyle(.red) }
+            }
+            Section {
+                Button(L("Clear Local Data and Quit…"), role: .destructive, action: clearLocalData)
+                    .disabled(model.pairing)
+            }
+        }
+        .formStyle(.grouped)
+        .frame(width: 450, height: 610)
+        .sheet(isPresented: $editingInputs) {
+            InputSourcesEditor(configuration: model.inputConfiguration) {
+                model.updateInputConfiguration($0)
+            }
+        }
+    }
+
+    private func integerRow(_ title: String, value: Binding<Int>, range: ClosedRange<Int>) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            TextField("", value: value, format: .number.grouping(.never))
+                .multilineTextAlignment(.trailing).textFieldStyle(.roundedBorder).frame(width: 50)
+            Stepper("", value: value, in: range).labelsHidden().fixedSize()
+        }
+    }
+
+    private func shortcutRow(_ title: String, value: Binding<String>) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            ShortcutRecorderField(value: value, onRecordingChanged: shortcuts.setRecording)
+                .frame(width: 155, height: 25)
+        }
+    }
+
+    private func mediaSourcePicker(_ title: String, slot: MediaInputSlot) -> some View {
+        Picker(title, selection: Binding(get: {
+            slot == .volumeDown ? model.inputConfiguration.volumeDownID : model.inputConfiguration.volumeUpID
+        }, set: { id in
+            var configuration = model.inputConfiguration
+            if slot == .volumeDown { configuration.volumeDownID = id } else { configuration.volumeUpID = id }
+            model.updateInputConfiguration(configuration)
+        })) {
+            Text(L("None")).tag("")
+            ForEach(model.inputConfiguration.sources) { Text($0.name).tag($0.id) }
+        }
+    }
+}

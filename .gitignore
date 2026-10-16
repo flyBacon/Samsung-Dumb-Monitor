@@ -1,0 +1,14 @@
+.build/
+.swiftpm/
+build/
+.DS_Store
+*.pcap
+*.pcapng
+*.log
+.env
+.env.*
+*credentials*.json
+*token*.json
+*pin*.json
+xcuserdata/
+*.xcuserstate

@@ -13,6 +13,7 @@ final class MonitorModel: ObservableObject {
     @Published private(set) var muted = false
     @Published private(set) var brightness = 50
     @Published private(set) var input: S9Input?
+    @Published private(set) var power: S9PowerState?
     @Published var error: String?
     @Published var host = ""
     @Published var pairing = false
@@ -60,12 +61,31 @@ final class MonitorModel: ObservableObject {
     @Published var inputMediaKeys: Bool {
         didSet { if !stopped { defaults.set(inputMediaKeys, forKey: "inputMediaKeys"); updateMediaKeys() } }
     }
+    @Published var wakeBeforeInput: Bool {
+        didSet { if !stopped { defaults.set(wakeBeforeInput, forKey: "wakeBeforeInput") } }
+    }
+    @Published var powerOnShortcut: String {
+        didSet { if !stopped { defaults.set(powerOnShortcut, forKey: "powerOnShortcut") } }
+    }
+    @Published var powerOffShortcut: String {
+        didSet { if !stopped { defaults.set(powerOffShortcut, forKey: "powerOffShortcut") } }
+    }
+    @Published private(set) var mediaConfiguration: MediaShortcutConfiguration
     @Published private(set) var inputConfiguration: InputSourceConfiguration
+    var recordingShortcut = false
+    var canSendCommand: Bool { !stopped && configured && !pairing }
+    var canAdjust: Bool { connected && power != .off }
+    var shortcutBindings: [ShortcutBinding] {
+        inputConfiguration.sources.map { ShortcutBinding(command: .input($0.id), name: $0.name, shortcut: $0.shortcut) }
+        + [ShortcutBinding(command: .powerOn, name: L("Power On"), shortcut: powerOnShortcut),
+           ShortcutBinding(command: .powerOff, name: L("Standby"), shortcut: powerOffShortcut)]
+    }
     let audio = AudioOutputMonitor()
     let media = MediaKeys()
     let focus: DisplayFocusMonitor
     var onBrightnessFeedback: ((Int) -> Void)?
     private let defaults: UserDefaults
+    private let automaticServices: Bool
     private var credentials: MonitorCredentials?
     private var controller: (any MonitorTransport)?
     private var pump: Task<Void, Never>?
@@ -74,6 +94,7 @@ final class MonitorModel: ObservableObject {
     private var pendingBrightness: Int?
     private var pendingMuted: Bool?
     private var pendingInput: S9Input?
+    private var pendingPower: S9PowerState?
     private var keyboardVolumeSteps: [Int] = []
     private var keyboardBrightnessSteps: [(direction: Int, fine: Bool, step: Int)] = []
     private var keyboardMuteToggles = 0
@@ -90,7 +111,13 @@ final class MonitorModel: ObservableObject {
 
     init(transport: (any MonitorTransport)? = nil, defaults: UserDefaults = .standard, automaticServices: Bool = true) {
         self.defaults = defaults
-        inputConfiguration = InputSourceConfiguration.load(from: defaults)
+        self.automaticServices = automaticServices
+        let initialInputs = InputSourceConfiguration.load(from: defaults)
+        inputConfiguration = initialInputs
+        mediaConfiguration = MediaShortcutConfiguration.load(from: defaults, inputs: initialInputs)
+        wakeBeforeInput = defaults.object(forKey: "wakeBeforeInput") == nil ? true : defaults.bool(forKey: "wakeBeforeInput")
+        powerOnShortcut = defaults.string(forKey: "powerOnShortcut") ?? ""
+        powerOffShortcut = defaults.string(forKey: "powerOffShortcut") ?? ""
         focus = DisplayFocusMonitor(start: automaticServices)
         let storedLimit = defaults.integer(forKey: "volumeLimit")
         storedVolumeLimit = storedLimit == 0 ? 32 : min(100, max(1, storedLimit))
@@ -111,7 +138,7 @@ final class MonitorModel: ObservableObject {
             Task { await self.refresh() }
         }
         media.canHandle = { [weak self] action in
-            guard let self, configured, connected, !pairing else { return false }
+            guard let self, configured, canAdjust, !pairing, !recordingShortcut else { return false }
             if action.isAudio {
                 return volumeKeys && !audioUID.isEmpty && audio.defaultUID == audioUID
                     && Date().timeIntervalSince(lastAudioRead) < 25
@@ -119,15 +146,13 @@ final class MonitorModel: ObservableObject {
             return brightnessKeys && focus.isFocused(displayUUID) && Date().timeIntervalSince(lastBrightnessRead) < 25
         }
         media.onKey = { [weak self] action, fine in self?.handleKey(action, fine: fine) }
-        media.canHandleInputShortcut = { [weak self] slot in
-            guard let self else { return false }
-            return inputMediaKeys && configured && connected && !pairing
-                && inputConfiguration.source(for: slot)?.source != nil
+        media.shortcutCommand = { [weak self] key, flags in
+            guard let self, inputMediaKeys, canSendCommand, !recordingShortcut,
+                  let command = mediaConfiguration.command(for: key, flags: flags),
+                  command.isValid(inputs: inputConfiguration.sources) else { return nil }
+            return command
         }
-        media.onInputShortcut = { [weak self] slot in
-            guard let self, let source = inputConfiguration.source(for: slot)?.source else { return }
-            setInput(source)
-        }
+        media.onCommand = { [weak self] command in self?.execute(command) }
         if let transport { controller = transport; configured = true }
         guard automaticServices else { return }
         do {
@@ -155,6 +180,9 @@ final class MonitorModel: ObservableObject {
         guard !stopped, value.validationMessage == nil else { return }
         inputConfiguration = value
         defaults.set(value.storageValue, forKey: "inputSources")
+        var media = mediaConfiguration
+        media.bindings.removeAll { !$0.command.isValid(inputs: value.sources) }
+        updateMediaConfiguration(media)
         // Once migrated, keep just one source of truth for shortcuts.
         defaults.removeObject(forKey: "usbCShortcut")
         defaults.removeObject(forKey: "displayPortShortcut")
@@ -163,6 +191,20 @@ final class MonitorModel: ObservableObject {
     func selectConfiguredInput(id: String) {
         guard let source = inputConfiguration.sources.first(where: { $0.id == id })?.source else { return }
         setInput(source)
+    }
+
+    func updateMediaConfiguration(_ value: MediaShortcutConfiguration) {
+        guard !stopped, value.validationMessage(inputs: inputConfiguration.sources) == nil else { return }
+        mediaConfiguration = value
+        defaults.set(value.storageValue, forKey: "mediaShortcuts")
+    }
+
+    func execute(_ command: MonitorCommand) {
+        switch command {
+        case .input(let id): selectConfiguredInput(id: id)
+        case .powerOn: setPower(.on)
+        case .powerOff: setPower(.off)
+        }
     }
 
     private func chooseAudioIfNeeded() {
@@ -233,6 +275,12 @@ final class MonitorModel: ObservableObject {
         refreshing = true
         defer { refreshing = false; startPump() }
         do {
+            power = try await controller.currentPower()
+            guard !stopped else { return }
+            if power == .off {
+                connected = true; error = nil
+                return
+            }
             let audioState = try await controller.currentAudioState()
             guard !stopped else { return }
             confirmedVolume = audioState.volume; confirmedMuted = audioState.isMuted; lastAudioRead = Date()
@@ -251,23 +299,38 @@ final class MonitorModel: ObservableObject {
     }
 
     func setVolume(_ value: Int) {
-        guard !stopped, configured, connected else { return }
+        guard !stopped, configured, canAdjust else { return }
         keyboardVolumeSteps.removeAll()
         volume = min(volumeLimit, max(0, value)); pendingVolume = volume; startPump()
     }
     func setBrightness(_ value: Int) {
-        guard !stopped, configured, connected else { return }
+        guard !stopped, configured, canAdjust else { return }
         keyboardBrightnessSteps.removeAll()
         brightness = min(50, max(0, value)); pendingBrightness = brightness; startPump()
     }
     func toggleMute() {
-        guard !stopped, configured, connected else { return }
+        guard !stopped, configured, canAdjust else { return }
         keyboardMuteToggles = 0; muteFromKeyboard = false
         muted.toggle(); pendingMuted = muted; startPump()
     }
     func setInput(_ value: S9Input) {
-        guard !stopped, configured, connected else { return }
+        guard canSendCommand else { return }
         input = value; pendingInput = value; startPump()
+    }
+
+    func setPower(_ state: S9PowerState) {
+        guard canSendCommand else { return }
+        // Standby supersedes queued slider/input changes. A later input request
+        // is a new intention and can explicitly wake the monitor again.
+        if state == .off { discardPendingChanges() }
+        pendingPower = state
+        startPump()
+    }
+
+    private func discardPendingChanges() {
+        pendingPower = nil; pendingInput = nil; pendingVolume = nil; pendingMuted = nil; pendingBrightness = nil
+        keyboardVolumeSteps.removeAll(); keyboardBrightnessSteps.removeAll(); keyboardMuteToggles = 0; muteFromKeyboard = false
+        volume = confirmedVolume; muted = confirmedMuted; brightness = confirmedBrightness; input = confirmedInput
     }
 
     private func handleKey(_ action: MediaAction, fine: Bool) {
@@ -327,7 +390,7 @@ final class MonitorModel: ObservableObject {
     /// pending values; an old readback must never erase a newer user intention.
     private func startPump() {
         guard !stopped, pump == nil, !refreshing, !pairing, let controller,
-              pendingInput != nil || pendingVolume != nil || pendingBrightness != nil || pendingMuted != nil else { return }
+              pendingPower != nil || pendingInput != nil || pendingVolume != nil || pendingBrightness != nil || pendingMuted != nil else { return }
         working = true
         pump = Task {
             defer { working = false; pump = nil }
@@ -335,10 +398,20 @@ final class MonitorModel: ObservableObject {
             try? await Task.sleep(for: .milliseconds(65))
             while !Task.isCancelled {
                 do {
-                    try await prepareKeyboardAudio(controller)
+                    if pendingPower == nil && pendingInput == nil { try await prepareKeyboardAudio(controller) }
                     try Task.checkCancellation()
-                    if let target = pendingInput {
+                    if let target = pendingPower {
+                        pendingPower = nil
+                        power = try await controller.setPower(target)
+                    } else if let target = pendingInput {
                         pendingInput = nil
+                        if wakeBeforeInput {
+                            power = try await controller.setPower(.on)
+                            try Task.checkCancellation()
+                            // Do not send an old source after a newer standby
+                            // or input intention arrived during the wake request.
+                            if pendingPower == .off || pendingInput != nil { continue }
+                        }
                         let result = try await controller.setInput(target)
                         confirmedInput = result
                         if pendingInput == nil { input = result }
@@ -382,8 +455,7 @@ final class MonitorModel: ObservableObject {
                     guard !stopped else { break }
                     connected = true; error = nil
                 } catch {
-                    pendingInput = nil; pendingVolume = nil; pendingMuted = nil; pendingBrightness = nil
-                    keyboardVolumeSteps.removeAll(); keyboardBrightnessSteps.removeAll(); keyboardMuteToggles = 0; muteFromKeyboard = false
+                    discardPendingChanges()
                     volume = confirmedVolume; muted = confirmedMuted; brightness = confirmedBrightness; input = confirmedInput
                     failed(error)
                     break
@@ -399,7 +471,7 @@ final class MonitorModel: ObservableObject {
     }
 
     func updateMediaKeys(requestPermission: Bool = false) {
-        guard !stopped else { return }
+        guard !stopped, automaticServices else { return }
         focus.enabled = brightnessKeys
         guard volumeKeys || brightnessKeys || inputMediaKeys else { media.stop(); mediaKeysRunning = false; return }
         if requestPermission { media.requestPermission() }
@@ -422,8 +494,7 @@ final class MonitorModel: ObservableObject {
         polling?.cancel(); pump?.cancel()
         audio.onChange = nil; focus.onDisplaysChanged = nil; onBrightnessFeedback = nil
         media.stop(); audio.stop(); focus.stop()
-        pendingInput = nil; pendingVolume = nil; pendingMuted = nil; pendingBrightness = nil
-        keyboardVolumeSteps.removeAll(); keyboardBrightnessSteps.removeAll(); keyboardMuteToggles = 0
+        discardPendingChanges()
         connected = false; mediaKeysRunning = false
         credentials = nil; controller = nil
     }

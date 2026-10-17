@@ -7,6 +7,8 @@ struct MonitorAudio: Sendable {
 }
 
 protocol MonitorTransport: Sendable {
+    func currentPower() async throws -> S9PowerState
+    func setPower(_ state: S9PowerState) async throws -> S9PowerState
     func currentInput() async throws -> S9Input
     func currentAudioState() async throws -> MonitorAudio
     func currentBacklight() async throws -> Int
@@ -23,6 +25,8 @@ struct LANMonitor: MonitorTransport {
         client = try S9InputController(host: credentials.host, accessToken: credentials.token,
             certificateSHA256: credentials.certificateSHA256)
     }
+    func currentPower() async throws -> S9PowerState { try await client.currentPower() }
+    func setPower(_ state: S9PowerState) async throws -> S9PowerState { try await client.setPower(state) }
     func currentInput() async throws -> S9Input { try await client.currentInput() }
     func currentBacklight() async throws -> Int { try await client.currentBacklight() }
     func currentAudioState() async throws -> MonitorAudio {

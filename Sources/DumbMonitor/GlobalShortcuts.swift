@@ -96,15 +96,15 @@ final class GlobalShortcutManager: ObservableObject {
 
     private var eventHandler: EventHandlerRef?
     private var registeredHotKeys: [EventHotKeyRef] = []
-    private let actionHandler: (String) -> Void
-    private var sources: [ConfiguredInput]
-    private var targets: [UInt32: String] = [:]
+    private let actionHandler: (MonitorCommand) -> Void
+    private var bindings: [ShortcutBinding]
+    private var targets: [UInt32: MonitorCommand] = [:]
     private var nextIdentifier: UInt32 = 1
     private var isRecording = false
     private var stopped = false
 
-    init(sources: [ConfiguredInput], actionHandler: @escaping (String) -> Void) {
-        self.sources = sources
+    init(bindings: [ShortcutBinding], actionHandler: @escaping (MonitorCommand) -> Void) {
+        self.bindings = bindings
         self.actionHandler = actionHandler
         Self.shared = self
 
@@ -147,7 +147,7 @@ final class GlobalShortcutManager: ObservableObject {
         var seen: [String: String] = [:]
         var errors: [String] = []
 
-        for source in sources {
+        for source in bindings {
             let stored = source.shortcut
             guard !stored.isEmpty else { continue }
             guard let shortcut = GlobalShortcut(storageValue: stored) else {
@@ -178,7 +178,7 @@ final class GlobalShortcutManager: ObservableObject {
             )
             if status == noErr, let reference {
                 registeredHotKeys.append(reference)
-                targets[identifier] = source.id
+                targets[identifier] = source.command
             } else {
                 errors.append(LF("Cannot register %@ shortcut (error %d)", source.name, status))
             }
@@ -187,9 +187,9 @@ final class GlobalShortcutManager: ObservableObject {
         registrationMessage = errors.isEmpty ? nil : errors.joined(separator: "; ")
     }
 
-    func configure(sources: [ConfiguredInput]) {
-        guard !stopped, sources != self.sources else { return }
-        self.sources = sources
+    func configure(bindings: [ShortcutBinding]) {
+        guard !stopped, bindings != self.bindings else { return }
+        self.bindings = bindings
         reload()
     }
 

@@ -5,6 +5,11 @@ import Testing
 @testable import DumbMonitor
 
 private actor SimulatedMonitor: MonitorTransport {
+    var power: S9PowerState = .on
+    var powerReads = 0
+    var holdNextPower = false
+    var rejectWake = false
+    var failReads = false
     var volume = 20
     var muted = false
     var brightness = 50
@@ -16,6 +21,21 @@ private actor SimulatedMonitor: MonitorTransport {
     var holdNextVolume = false
     var release: CheckedContinuation<Void, Never>?
 
+    func currentPower() throws -> S9PowerState {
+        powerReads += 1
+        if failReads { throw URLError(.cannotConnectToHost) }
+        return power
+    }
+    func setPower(_ value: S9PowerState) async throws -> S9PowerState {
+        try begin("power:\(value.rawValue)"); defer { activeWrites -= 1 }
+        if rejectWake && value == .on { throw URLError(.cannotConnectToHost) }
+        if holdNextPower {
+            holdNextPower = false
+            await withCheckedContinuation { release = $0 }
+        }
+        power = value; failReads = false
+        return value
+    }
     func currentInput() -> S9Input { input }
     func currentAudioState() -> MonitorAudio { MonitorAudio(volume: volume, isMuted: muted) }
     func currentBacklight() -> Int { brightness }
@@ -47,8 +67,103 @@ private actor SimulatedMonitor: MonitorTransport {
         maximumConcurrentWrites = max(activeWrites, maximumConcurrentWrites)
     }
     func hold() { holdNextVolume = true }
+    func holdWake() { holdNextPower = true }
+    func rejectPowerOn() { rejectWake = true }
+    func offline() { failReads = true }
+    func standby() { power = .off }
     func fail() { failWrites = true }
     func resume() { release?.resume(); release = nil }
+}
+
+@Test @MainActor func wakeBeforeInputIsOneAcknowledgementThenSourceWithoutExtraPowerReads() async {
+    let transport = SimulatedMonitor()
+    await transport.standby()
+    let controller = model(transport)
+    defer { controller.stop() }
+    await controller.refresh()
+    #expect(controller.power == .off && controller.connected && !controller.canAdjust)
+    #expect(controller.wakeBeforeInput)
+    controller.setInput(.displayPort)
+    await controller.waitForPendingChanges()
+    #expect(await transport.writes == ["power:powerOn", "input:Display Port"])
+    #expect(await transport.powerReads == 1)
+    #expect(controller.power == .on && controller.input == .displayPort)
+}
+
+@Test @MainActor func disablingAutomaticWakeKeepsTheOriginalSingleSourceRequest() async {
+    let transport = SimulatedMonitor()
+    let controller = model(transport)
+    defer { controller.stop() }
+    await controller.refresh()
+    controller.wakeBeforeInput = false
+    controller.setInput(.displayPort)
+    await controller.waitForPendingChanges()
+    #expect(await transport.writes == ["input:Display Port"])
+}
+
+@Test @MainActor func failedWakeDoesNotSendInputOrRetryOrDrainOtherChanges() async {
+    let transport = SimulatedMonitor()
+    let controller = model(transport)
+    defer { controller.stop() }
+    await controller.refresh()
+    await transport.rejectPowerOn()
+    controller.setInput(.displayPort)
+    controller.setVolume(22)
+    await controller.waitForPendingChanges()
+    #expect(await transport.writes == ["power:powerOn"])
+    #expect(controller.error != nil && !controller.connected)
+    #expect(controller.input == .usbC && controller.volume == 20)
+}
+
+@Test @MainActor func standbySupersedesQueuedInputAndSliderChanges() async {
+    let transport = SimulatedMonitor()
+    let controller = model(transport)
+    defer { controller.stop() }
+    await controller.refresh()
+    controller.setVolume(25)
+    controller.setBrightness(10)
+    controller.setInput(.displayPort)
+    controller.setPower(.off)
+    await controller.waitForPendingChanges()
+    #expect(await transport.writes == ["power:powerOff"])
+    #expect(controller.power == .off && controller.volume == 20 && controller.input == .usbC)
+}
+
+@Test @MainActor func standbyDuringAnInFlightWakePreventsTheOldSourceFromBeingSent() async throws {
+    let transport = SimulatedMonitor()
+    await transport.holdWake()
+    let controller = model(transport)
+    defer { controller.stop() }
+    await controller.refresh()
+    controller.setInput(.displayPort)
+    for _ in 0..<200 {
+        if await transport.release != nil { break }
+        try await Task.sleep(for: .milliseconds(2))
+    }
+    #expect(await transport.release != nil)
+    controller.setPower(.off)
+    await transport.resume()
+    await controller.waitForPendingChanges()
+    #expect(await transport.writes == ["power:powerOn", "power:powerOff"])
+    #expect(await transport.maximumConcurrentWrites == 1)
+    #expect(controller.power == .off)
+}
+
+@Test @MainActor func wakeAndInputRemainAvailableAfterAnOfflineRead() async {
+    let transport = SimulatedMonitor()
+    let controller = model(transport)
+    defer { controller.stop() }
+    await transport.offline()
+    await controller.refresh()
+    #expect(!controller.connected && controller.canSendCommand)
+    controller.execute(.powerOn)
+    await controller.waitForPendingChanges()
+    #expect(await transport.writes == ["power:powerOn"])
+    controller.execute(.powerOff)
+    await controller.waitForPendingChanges()
+    controller.execute(.input("usb-c"))
+    await controller.waitForPendingChanges()
+    #expect(await transport.writes == ["power:powerOn", "power:powerOff", "power:powerOn", "input:USB-C"])
 }
 
 @MainActor
@@ -69,7 +184,7 @@ private func model(_ transport: SimulatedMonitor) -> MonitorModel {
     controller.setInput(.displayPort)
     controller.setInput(.usbC)
     await controller.waitForPendingChanges()
-    #expect(await transport.writes == ["input:USB-C", "volume:32", "brightness:50"])
+    #expect(await transport.writes == ["power:powerOn", "input:USB-C", "volume:32", "brightness:50"])
     #expect(await transport.maximumConcurrentWrites == 1)
     #expect(controller.volume == 32 && controller.brightness == 50 && controller.connected)
 }
@@ -138,14 +253,19 @@ private func model(_ transport: SimulatedMonitor) -> MonitorModel {
     configuration.sources.append(hdmi)
     configuration.volumeDownID = hdmi.id
     controller.updateInputConfiguration(configuration)
-    controller.media.onInputShortcut(.volumeDown)
+    var media = controller.mediaConfiguration
+    media.bindings[0].command = .input(hdmi.id)
+    controller.updateMediaConfiguration(media)
+    controller.inputMediaKeys = true
+    let command = try #require(controller.media.shortcutCommand(.volumeDown, [.command]))
+    controller.media.onCommand(command)
     await controller.waitForPendingChanges()
-    #expect(await transport.writes == ["input:HDMI3"])
+    #expect(await transport.writes == ["power:powerOn", "input:HDMI3"])
     #expect(controller.input?.rawValue == "HDMI3")
     configuration.remove(id: hdmi.id)
     controller.updateInputConfiguration(configuration)
-    controller.media.onInputShortcut(.volumeDown)
+    #expect(controller.media.shortcutCommand(.volumeDown, [.command]) == nil)
     controller.selectConfiguredInput(id: hdmi.id)
     await controller.waitForPendingChanges()
-    #expect(await transport.writes == ["input:HDMI3"])
+    #expect(await transport.writes == ["power:powerOn", "input:HDMI3"])
 }

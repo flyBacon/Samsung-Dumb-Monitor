@@ -5,7 +5,7 @@
 `天晓得这些几大千的聪明显示器为什么连DDC/CI都没有。`
 
 一个很小的原生 macOS 菜单栏工具，附 Swift API 和 CLI。
-可以切输入源、调音量、静音、调亮度。
+可以切输入源、开机／待机、调音量、静音、调亮度。
 
 **只走本地 LAN**，不用登录三星账号，不依赖 SmartThings App，
 不用给 Cloud API 付钱，也不用操心 PAT 过期。首次在显示器上允许配对，
@@ -14,7 +14,7 @@
 
 ## 构建和使用
 
-可从 [Releases](../../releases) 下载，解压后将 `Dumb Monitor.app` 拖入“应用程序”（macOS 14+）。若 macOS 阻止打开，在终端运行：
+从 [Releases](../../releases) 下载适合你的 Mac 的 DMG，打开后将 `Dumb Monitor.app` 拖入“应用程序”（macOS 14+）。若 macOS 阻止打开，在终端运行：
 
 ```sh
 xattr -dr com.apple.quarantine "/Applications/Dumb Monitor.app"
@@ -32,8 +32,9 @@ swift test -c release
 键盘控制需要辅助功能权限。
 音量键跟随所选音频输出，亮度键跟随活动显示器。
 
-输入源快捷键可以自行绑定；
-也支持选用 **"⌃ ⌘ 音量减”／"⌃ ⌘ 音量加"**，使得在锁屏也可触发。
+输入源、开机和待机均可绑定快捷键。App 默认在切输入源前先发送 `powerOn`（可关闭），只等命令响应，不额外轮询或延时。
+
+媒体快捷键用于在锁屏时切换输入源和控制电源。
 
 支持隐藏图标、隐藏开机启动、音量上限和整数步进。
 
@@ -42,6 +43,9 @@ CLI 复用 App 的配对，也可以在终端配对（`monitor.local` 为示例�
 ```sh
 ./build/s9-input pair monitor.local
 ./build/s9-input status
+./build/s9-input power-status
+./build/s9-input power-on
+./build/s9-input power-off
 ./build/s9-input usb-c
 ./build/s9-input displayport
 ./build/s9-input input HDMI1  # 仅为兼容 HDMI 设备的示例
@@ -62,10 +66,13 @@ CLI 复用 App 的配对，也可以在终端配对（`monitor.local` 为示例�
 
 | 方法 | 设置参数 |
 | --- | --- |
+| `powerControl` | `power`：`powerOn` 或 `powerOff` |
 | `inputSourceControl` | `inputSource`：`USB-C`、`Display Port` 或配置的准确协议值 |
 | `directVolumeControl` | `volume`：0–100 |
 | `muteControl` | `mute`：`muteOn` 或 `muteOff` |
 | `backlightControl` | `backlight`：0–50 |
+
+CLI 的输入指令保持直接切换，需要时先执行 `power-on`。
 
 省略设置参数即读取。配对先调用 `getTVStates`，再调用 `createAccessToken`。
 不模拟遥控菜单。这是非官方接口，固件更新可能影响兼容性。

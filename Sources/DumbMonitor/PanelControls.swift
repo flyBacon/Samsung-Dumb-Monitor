@@ -149,6 +149,37 @@ struct InputMenu: NSViewRepresentable {
     }
 }
 
+struct PowerButton: NSViewRepresentable {
+    let isOn: Bool
+    let action: () -> Void
+    final class Coordinator: NSObject {
+        var action: () -> Void
+        init(_ action: @escaping () -> Void) { self.action = action }
+        @objc func click() { action() }
+    }
+    func makeCoordinator() -> Coordinator { Coordinator(action) }
+    func makeNSView(context: Context) -> NSButton {
+        let button = NSButton()
+        button.isBordered = false
+        button.setButtonType(.momentaryChange)
+        button.imagePosition = .imageOnly
+        button.focusRingType = .none
+        button.refusesFirstResponder = true
+        button.target = context.coordinator
+        button.action = #selector(Coordinator.click)
+        return button
+    }
+    func updateNSView(_ button: NSButton, context: Context) {
+        context.coordinator.action = action
+        let title = isOn ? L("Standby") : L("Power On")
+        button.image = NSImage(systemSymbolName: "power", accessibilityDescription: title)
+        button.contentTintColor = isOn ? .labelColor : .secondaryLabelColor
+        button.toolTip = title
+        button.setAccessibilityLabel(title)
+        button.isEnabled = context.environment.isEnabled
+    }
+}
+
 struct PanelActions: NSViewRepresentable {
     let settings: () -> Void
     let hide: () -> Void

@@ -96,3 +96,24 @@
 "Choose an existing source for each media shortcut." = "请为媒体组合键选择列表中的输入源。";
 "S9 returned an invalid pairing response or no local token. Check the monitor's approval prompt." = "S9 返回了无效的配对响应或未提供本地 token，请检查显示器上的授权提示。";
 "S9 rejected pairing (code %d). Check the monitor's approval prompt and IP Remote setting." = "S9 拒绝了配对（错误码 %d），请检查显示器上的授权提示及 IP Remote 设置。";
+
+"Power On" = "开机";
+"Standby" = "待机";
+"Power" = "电源";
+"Power on before switching input" = "切换输入源前先开机";
+"Media shortcuts" = "媒体快捷键";
+"Enable media shortcuts" = "启用媒体快捷键";
+"Edit Media Shortcuts…" = "编辑媒体快捷键…";
+"Volume Down" = "音量减";
+"Volume Up" = "音量加";
+"Brightness Down" = "亮度减";
+"Brightness Up" = "亮度加";
+"Key" = "按键";
+"Action" = "操作";
+"Remove shortcut" = "移除快捷键";
+"Reset" = "重置";
+"Use up to 32 media shortcuts." = "最多可设置 32 个媒体快捷键。";
+"Choose a modifier and a valid action for each shortcut." = "请为每个快捷键选择至少一个修饰键和有效操作。";
+"Each media key combination must be unique." = "媒体按键组合不可重复。";
+"Choose at least one modifier. Unassigned combinations keep their normal behavior. Lock-screen availability depends on macOS and the keyboard." = "至少选择一个修饰键。未分配的组合保持原有行为；锁屏可用性取决于 macOS 和键盘。";
+"S9 returned an unexpected power, volume, mute, or backlight state." = "S9 返回了意外的电源、音量、静音或背光状态。";

@@ -5,13 +5,13 @@
 `Apparently, DDC/CI is too much to ask from these thousand-dollar smart monitors.`
 
 A small native macOS menu bar utility for Samsung smart monitors, with a local Swift API and CLI.
-Input switching, volume, mute and brightness. 
+Input switching, power, volume, mute and brightness.
 
 Everything goes directly over the **local LAN**. No Samsung account login, SmartThings app, paid cloud API, or expiring PAT to babysit. Pair once on the monitor; the local token and certificate pin live in macOS Keychain. A compatible monitor with IP Remote enabled is required; this was created for the ViewFinity S9 and hasn't been tested on other Samsung smart monitors.
 
 ## Build & use
 
-Download from [Releases](../../releases), unzip and move `Dumb Monitor.app` to Applications (macOS 14+). If macOS blocks:
+Download the DMG for your Mac from [Releases](../../releases), open it and drag `Dumb Monitor.app` to Applications (macOS 14+). If macOS blocks:
 
 ```sh
 xattr -dr com.apple.quarantine "/Applications/Dumb Monitor.app"
@@ -29,7 +29,9 @@ Open `Dumb Monitor.app` (`build/` for a source build), enter your monitor's LAN 
 Keyboard control needs Accessibility permission.
 Volume keys follow the selected audio output; brightness keys follow the active display.
 
-Shortcut keys can be assigned to each input source. Alternatively, **⌃ ⌘ Volume Down** and **⌃ ⌘ Volume Up** can be used to switch between sources even from the lock screen.
+Assign shortcuts to inputs, Power On and Standby. Input switching sends `powerOn` first by default (optional); it waits only for the command response, with no extra wake polling or delay.
+
+Media shortcuts let you switch inputs and control power from the lock screen.
 
 Login launch, hidden icon, volume limit and integer steps are configurable.
 
@@ -38,6 +40,9 @@ The CLI shares the app's pairing. Or pair from the terminal (`monitor.local` is 
 ```sh
 ./build/s9-input pair monitor.local
 ./build/s9-input status
+./build/s9-input power-status
+./build/s9-input power-on
+./build/s9-input power-off
 ./build/s9-input usb-c
 ./build/s9-input displayport
 ./build/s9-input input HDMI1  # example for a compatible HDMI device
@@ -58,10 +63,13 @@ JSON-RPC via HTTPS to port **1516**, with a pinned monitor certificate:
 
 | Method | Setter parameter |
 | --- | --- |
+| `powerControl` | `power`: `powerOn` or `powerOff` |
 | `inputSourceControl` | `inputSource`: `USB-C`, `Display Port`, or a configured exact value |
 | `directVolumeControl` | `volume`: 0–100 |
 | `muteControl` | `mute`: `muteOn` or `muteOff` |
 | `backlightControl` | `backlight`: 0–50 |
+
+CLI input commands stay direct; run `power-on` first when needed.
 
 Omit the setter parameter to read. Pairing uses `getTVStates` then `createAccessToken`.
 No remote-menu navigation. Firmware updates may change this unofficial interface.

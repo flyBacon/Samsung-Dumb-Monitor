@@ -18,7 +18,7 @@ struct ControlsView: View {
                         .help("\(model.volume) / \(model.volumeLimit)")
                     controlValue(model.volume, maximum: model.volumeLimit)
                 }
-                .disabled(!model.connected)
+                .disabled(!model.canAdjust)
                 HStack(spacing: 6) {
                     Image(systemName: "sun.max.fill").frame(width: 20).foregroundStyle(.secondary)
                     ContinuousPanelSlider(value: Binding(get: { model.brightness }, set: model.setBrightness),
@@ -26,7 +26,7 @@ struct ControlsView: View {
                         .help("\(model.brightness) / 50")
                     controlValue(model.brightness, maximum: 50)
                 }
-                .disabled(!model.connected)
+                .disabled(!model.canAdjust)
                 HStack(spacing: 6) {
                     Group {
                         if model.inputConfiguration.sources.count <= 2,
@@ -36,8 +36,11 @@ struct ControlsView: View {
                             InputMenu(sources: model.inputConfiguration.sources, selection: model.input, select: model.setInput)
                                 .frame(maxWidth: .infinity)
                         }
-                    }.disabled(!model.connected)
+                    }.disabled(!model.canSendCommand)
                     Spacer(minLength: 2)
+                    PowerButton(isOn: model.connected && model.power == .on) {
+                        model.setPower(model.connected && model.power == .on ? .off : .on)
+                    }.frame(width: 20, height: 22).disabled(!model.canSendCommand)
                     actions
                 }
                 if let error = model.error {
@@ -82,6 +85,7 @@ struct SettingsView: View {
     @ObservedObject var focus: DisplayFocusMonitor
     let clearLocalData: () -> Void
     @State private var editingInputs = false
+    @State private var editingMedia = false
 
     var body: some View {
         Form {
@@ -132,6 +136,7 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section(L("Input sources")) {
+                Toggle(L("Power on before switching input"), isOn: $model.wakeBeforeInput)
                 ForEach(model.inputConfiguration.sources) { source in
                     shortcutRow(source.name, value: Binding(get: {
                         model.inputConfiguration.sources.first(where: { $0.id == source.id })?.shortcut ?? ""
@@ -143,11 +148,14 @@ struct SettingsView: View {
                     }))
                 }
                 Button(L("Edit Input Sources…")) { editingInputs = true }
-                Toggle(L("Media keys for input switching"), isOn: $model.inputMediaKeys)
-                if model.inputMediaKeys {
-                    mediaSourcePicker(L("⌃⌘ + Volume Down"), slot: .volumeDown)
-                    mediaSourcePicker(L("⌃⌘ + Volume Up"), slot: .volumeUp)
-                }
+            }
+            Section(L("Power")) {
+                shortcutRow(L("Power On"), value: $model.powerOnShortcut)
+                shortcutRow(L("Standby"), value: $model.powerOffShortcut)
+            }
+            Section(L("Media shortcuts")) {
+                Toggle(L("Enable media shortcuts"), isOn: $model.inputMediaKeys)
+                Button(L("Edit Media Shortcuts…")) { editingMedia = true }
                 if let message = shortcuts.registrationMessage { Text(message).font(.caption).foregroundStyle(.red) }
             }
             Section {
@@ -160,6 +168,11 @@ struct SettingsView: View {
         .sheet(isPresented: $editingInputs) {
             InputSourcesEditor(configuration: model.inputConfiguration) {
                 model.updateInputConfiguration($0)
+            }
+        }
+        .sheet(isPresented: $editingMedia) {
+            MediaShortcutsEditor(configuration: model.mediaConfiguration, inputs: model.inputConfiguration) {
+                model.updateMediaConfiguration($0)
             }
         }
     }
@@ -178,21 +191,12 @@ struct SettingsView: View {
         HStack {
             Text(title)
             Spacer()
-            ShortcutRecorderField(value: value, onRecordingChanged: shortcuts.setRecording)
+            ShortcutRecorderField(value: value, onRecordingChanged: { recording in
+                model.recordingShortcut = recording
+                shortcuts.setRecording(recording)
+            })
                 .frame(width: 155, height: 25)
         }
     }
 
-    private func mediaSourcePicker(_ title: String, slot: MediaInputSlot) -> some View {
-        Picker(title, selection: Binding(get: {
-            slot == .volumeDown ? model.inputConfiguration.volumeDownID : model.inputConfiguration.volumeUpID
-        }, set: { id in
-            var configuration = model.inputConfiguration
-            if slot == .volumeDown { configuration.volumeDownID = id } else { configuration.volumeUpID = id }
-            model.updateInputConfiguration(configuration)
-        })) {
-            Text(L("None")).tag("")
-            ForEach(model.inputConfiguration.sources) { Text($0.name).tag($0.id) }
-        }
-    }
 }

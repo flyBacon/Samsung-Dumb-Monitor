@@ -33,8 +33,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         model = MonitorModel()
-        shortcuts = GlobalShortcutManager(sources: model.inputConfiguration.sources) { [weak self] id in
-            self?.model.selectConfiguredInput(id: id)
+        shortcuts = GlobalShortcutManager(bindings: model.shortcutBindings) { [weak self] command in
+            self?.model.execute(command)
         }
         model.onBrightnessFeedback = { [weak self] value in
             guard let self else { return }
@@ -49,7 +49,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             Task { @MainActor in
                 guard let self else { return }
                 self.resizeControls()
-                self.shortcuts.configure(sources: self.model.inputConfiguration.sources)
+                self.shortcuts.configure(bindings: self.model.shortcutBindings)
             }
         }
         let event = NSAppleEventManager.shared().currentAppleEvent

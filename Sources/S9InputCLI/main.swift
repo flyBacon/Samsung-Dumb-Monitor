@@ -17,6 +17,8 @@ struct S9InputCLI {
     Usage: s9-input <command>
       pair <monitor-address>   Pair on the LAN; approve on the monitor
       status                   Read input, audio and brightness
+      power-on | power-off     Wake or put the monitor in standby
+      power-status             Read power state
       usb-c | displayport      Select input directly
       input <protocol-value>   Select a custom source, e.g. HDMI1
       volume <0...100>          Set volume
@@ -35,7 +37,7 @@ struct S9InputCLI {
             print(usage)
             return
         }
-        let actions = ["status", "usb-c", "displayport", "input", "volume-up", "volume-down",
+        let actions = ["status", "power-on", "power-off", "power-status", "usb-c", "displayport", "input", "volume-up", "volume-down",
                        "volume", "mute", "unmute", "brightness-up", "brightness-down", "brightness"]
         guard let action = arguments.first else { return }
         if action == "pair" {
@@ -77,6 +79,9 @@ struct S9InputCLI {
         encoder.outputFormatting = [.sortedKeys]
         let output: Data
         switch action {
+        case "power-on": output = try encoder.encode(await controller.setPower(.on))
+        case "power-off": output = try encoder.encode(await controller.setPower(.off))
+        case "power-status": output = try encoder.encode(await controller.currentPower())
         case "status":
             struct Status: Encodable { let input: S9Input; let audio: S9AudioState; let brightness: Int }
             output = try encoder.encode(await Status(input: controller.currentInput(),

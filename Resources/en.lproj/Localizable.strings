@@ -96,3 +96,24 @@
 "Choose an existing source for each media shortcut." = "Choose an existing source for each media shortcut.";
 "S9 returned an invalid pairing response or no local token. Check the monitor's approval prompt." = "S9 returned an invalid pairing response or no local token. Check the monitor's approval prompt.";
 "S9 rejected pairing (code %d). Check the monitor's approval prompt and IP Remote setting." = "S9 rejected pairing (code %d). Check the monitor's approval prompt and IP Remote setting.";
+
+"Power On" = "Power On";
+"Standby" = "Standby";
+"Power" = "Power";
+"Power on before switching input" = "Power on before switching input";
+"Media shortcuts" = "Media shortcuts";
+"Enable media shortcuts" = "Enable media shortcuts";
+"Edit Media Shortcuts…" = "Edit Media Shortcuts…";
+"Volume Down" = "Volume Down";
+"Volume Up" = "Volume Up";
+"Brightness Down" = "Brightness Down";
+"Brightness Up" = "Brightness Up";
+"Key" = "Key";
+"Action" = "Action";
+"Remove shortcut" = "Remove shortcut";
+"Reset" = "Reset";
+"Use up to 32 media shortcuts." = "Use up to 32 media shortcuts.";
+"Choose a modifier and a valid action for each shortcut." = "Choose a modifier and a valid action for each shortcut.";
+"Each media key combination must be unique." = "Each media key combination must be unique.";
+"Choose at least one modifier. Unassigned combinations keep their normal behavior. Lock-screen availability depends on macOS and the keyboard." = "Choose at least one modifier. Unassigned combinations keep their normal behavior. Lock-screen availability depends on macOS and the keyboard.";
+"S9 returned an unexpected power, volume, mute, or backlight state." = "S9 returned an unexpected power, volume, mute, or backlight state.";

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 import Foundation
 
-enum MediaAction: Int, CaseIterable, Sendable {
+enum MediaAction: Int, Codable, CaseIterable, Sendable {
     // IOKit/hidsystem/ev_keymap.h, NX_KEYTYPE_*.
     case volumeUp = 0, volumeDown = 1, brightnessUp = 2, brightnessDown = 3, mute = 7
 
@@ -32,25 +32,25 @@ enum ControlPolicy {
 /// Keeps ownership of a whole press/release pair. Routing is decided on the
 /// first down, so an audio-device change mid-press cannot leak its key-up.
 struct MediaKeyRouting {
-    private enum Target { case media, input(MediaInputSlot) }
+    private enum Target { case media, command(MonitorCommand) }
     private var owned: [MediaAction: Target] = [:]
 
     mutating func route(action: MediaAction, down: Bool, isRepeat: Bool,
-                        eligible: Bool, inputAction: MediaInputSlot? = nil)
-        -> (consume: Bool, invoke: Bool, input: MediaInputSlot?) {
+                        eligible: Bool, command: MonitorCommand? = nil)
+        -> (consume: Bool, invoke: Bool, command: MonitorCommand?) {
         if !down { return (owned.removeValue(forKey: action) != nil, false, nil) }
         if let target = owned[action] {
             switch target {
-            case .input: return (true, false, nil)
+            case .command: return (true, false, nil)
             case .media: return (true, isRepeat && eligible && action != .mute, nil)
             }
         }
         // Never take over a press that began in another handler or before this
         // feature was enabled, even if its modifiers change while held.
         guard !isRepeat else { return (false, false, nil) }
-        if let inputAction {
-            owned[action] = .input(inputAction)
-            return (true, false, inputAction)
+        if let command {
+            owned[action] = .command(command)
+            return (true, false, command)
         }
         if eligible { owned[action] = .media; return (true, true, nil) }
         return (false, false, nil)

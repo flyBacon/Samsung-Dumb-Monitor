@@ -31,6 +31,10 @@ public struct S9Input: RawRepresentable, Codable, Hashable, Sendable {
     }
 }
 
+public enum S9PowerState: String, Codable, Sendable {
+    case on = "powerOn", off = "powerOff"
+}
+
 public struct S9InputSwitchResult: Codable, Sendable {
     public let target: S9Input
     public let current: S9Input
@@ -72,7 +76,7 @@ public enum S9InputError: Error, LocalizedError, Sendable {
         case .http(let status): String(format: NSLocalizedString("S9 returned HTTP %d; no command was retried.", bundle: .main, comment: ""), status)
         case .protocolFailure(let code): String(format: NSLocalizedString("S9 rejected the request (code %@). No automatic pairing was attempted.", bundle: .main, comment: ""), code.map(String.init) ?? "unknown")
         case .unexpectedInput: NSLocalizedString("S9 returned an unknown input; no source value was guessed.", bundle: .main, comment: "")
-        case .unexpectedState: NSLocalizedString("S9 returned an unexpected volume, mute, or backlight state.", bundle: .main, comment: "")
+        case .unexpectedState: NSLocalizedString("S9 returned an unexpected power, volume, mute, or backlight state.", bundle: .main, comment: "")
         case .invalidValue: NSLocalizedString("Volume must be 0...100; backlight 0...50; relative steps must be positive.", bundle: .main, comment: "")
         case .stateUnconfirmed: NSLocalizedString("Command returned, but the target state was not observed. No command was retried.", bundle: .main, comment: "")
         }
@@ -113,8 +117,34 @@ public actor S9InputController {
 
     deinit { session.invalidateAndCancel() }
 
+    // Internal injection for protocol tests; the public initializer always
+    // creates its own certificate-pinned session.
+    init(endpoint: URL, accessToken: String, session: URLSession) {
+        self.endpoint = endpoint
+        self.accessToken = accessToken
+        self.session = session
+    }
+
     public func currentInput() async throws -> S9Input {
         try await request(input: nil)
+    }
+
+    public func currentPower() async throws -> S9PowerState {
+        guard let raw = try await rpc("powerControl").power,
+              let state = S9PowerState(rawValue: raw) else { throw S9InputError.unexpectedState }
+        return state
+    }
+
+    /// One direct request. Validate the acknowledgement without extra polling
+    /// or waiting for the panel to illuminate before a subsequent input command.
+    @discardableResult
+    public func setPower(_ state: S9PowerState) async throws -> S9PowerState {
+        guard !selecting else { throw S9InputError.busy }
+        selecting = true
+        defer { selecting = false }
+        let value = try await rpc("powerControl", extra: ["power": .text(state.rawValue)])
+        guard value.power == state.rawValue else { throw S9InputError.stateUnconfirmed }
+        return state
     }
 
     public func currentAudioState() async throws -> S9AudioState {
@@ -307,6 +337,7 @@ public actor S9InputController {
         let error: ErrorValue?
         let code: Int?
         struct ResultValue: Decodable {
+            let power: String?
             let inputSource: String?
             let volume: Int?
             let mute: String?

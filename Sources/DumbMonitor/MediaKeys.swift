@@ -21,31 +21,19 @@ private struct DecodedMediaKey: Sendable {
     let repeated: Bool
     let fine: Bool
     let allowedModifiers: Bool
-    let inputAction: MediaInputSlot?
+    let flags: NSEvent.ModifierFlags
 
     init?(event: CGEvent) {
         guard let native = NSEvent(cgEvent: event), native.type == .systemDefined,
               native.subtype.rawValue == 8,
               let action = MediaAction(rawValue: (native.data1 >> 16) & 0xFFFF) else { return nil }
         let flags = native.modifierFlags.intersection([.shift, .option, .command, .control])
+        self.flags = flags
         self.action = action
         down = ((native.data1 >> 8) & 0xFF) == 0xA
         repeated = native.data1 & 1 != 0
         fine = flags == [.shift, .option]
         allowedModifiers = flags.isEmpty || fine
-        inputAction = MediaInputShortcut.action(for: action, flags: flags)
-    }
-}
-
-enum MediaInputShortcut {
-    static func action(for action: MediaAction, flags: NSEvent.ModifierFlags) -> MediaInputSlot? {
-        let modifiers = flags.intersection([.shift, .option, .command, .control])
-        guard modifiers == [.control, .command] else { return nil }
-        switch action {
-        case .volumeDown: return .volumeDown
-        case .volumeUp: return .volumeUp
-        default: return nil
-        }
     }
 }
 
@@ -53,8 +41,8 @@ enum MediaInputShortcut {
 final class MediaKeys {
     var canHandle: (MediaAction) -> Bool = { _ in false }
     var onKey: (MediaAction, Bool) -> Void = { _, _ in }
-    var canHandleInputShortcut: (MediaInputSlot) -> Bool = { _ in false }
-    var onInputShortcut: (MediaInputSlot) -> Void = { _ in }
+    var shortcutCommand: (MediaAction, NSEvent.ModifierFlags) -> MonitorCommand? = { _, _ in nil }
+    var onCommand: (MonitorCommand) -> Void = { _ in }
     private var tap: CFMachPort?
     private var source: CFRunLoopSource?
     private var routing = MediaKeyRouting()
@@ -95,8 +83,8 @@ final class MediaKeys {
         guard let key else { return false }
         let decision = routing.route(action: key.action, down: key.down, isRepeat: key.repeated,
             eligible: key.allowedModifiers && canHandle(key.action),
-            inputAction: key.inputAction.flatMap { canHandleInputShortcut($0) ? $0 : nil })
-        if let input = decision.input { onInputShortcut(input) }
+            command: shortcutCommand(key.action, key.flags))
+        if let command = decision.command { onCommand(command) }
         if decision.invoke { onKey(key.action, key.fine) }
         return decision.consume
     }

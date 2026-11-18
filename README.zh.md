@@ -27,10 +27,12 @@ xattr -dr com.apple.quarantine "/Applications/Dumb Monitor.app"
 swift test -c release
 ```
 
+本地构建会自动使用钥匙串中唯一的 Apple Development 身份。也可将 `CODE_SIGN_IDENTITY` 设为固定的 Apple 代码签名身份，让 macOS 在升级后识别 App 并保留辅助功能授权。
+
 打开 `Dumb Monitor.app`（源码构建版本在 `build/` 目录），输入显示器的局域网地址，在显示器上允许配对。
 
 键盘控制需要辅助功能权限。
-音量键跟随所选音频输出，亮度键跟随活动显示器。
+音量键默认跟随所选音频输出。可在设置中开启「使用非 USB-C 输入源时也控制显示器音量」，这样显示器连接到 Mac 并显示 DisplayPort 等其他输入时，音量键也能控制它。亮度键跟随活动显示器。
 
 输入源、开机和待机均可绑定快捷键。App 默认在切输入源前先发送 `powerOn`（可关闭），只等命令响应，不额外轮询或延时。
 

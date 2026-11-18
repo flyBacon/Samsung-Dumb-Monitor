@@ -269,3 +269,35 @@ private func model(_ transport: SimulatedMonitor) -> MonitorModel {
     await controller.waitForPendingChanges()
     #expect(await transport.writes == ["power:powerOn", "input:HDMI3"])
 }
+
+@Test @MainActor func volumeOverrideRequiresAConnectedDisplayAndConfirmedNonUSBInput() async {
+    let transport = SimulatedMonitor()
+    let controller = model(transport)
+    defer { controller.stop() }
+    controller.volumeKeys = true
+    controller.audioUID = "monitor-audio"
+    controller.displayUUID = "monitor-display"
+    func routes(_ output: String = "headphones", displays: Set<String> = ["monitor-display"]) -> Bool {
+        controller.routesVolumeKeys(defaultOutput: output, onlineDisplays: displays)
+    }
+    await controller.refresh()
+    #expect(routes("monitor-audio"))
+    #expect(!routes())
+    controller.volumeOnOtherInputs = true
+    #expect(!routes())
+    controller.setInput(.displayPort)
+    #expect(!routes())
+    await controller.waitForPendingChanges()
+    #expect(routes())
+    #expect(!routes(displays: ["another-display"]))
+    controller.volumeOnOtherInputs = false
+    #expect(!routes())
+    controller.volumeOnOtherInputs = true
+    controller.volumeKeys = false
+    #expect(!routes())
+    controller.volumeKeys = true
+    controller.setInput(.usbC)
+    #expect(!routes())
+    await controller.waitForPendingChanges()
+    #expect(!routes())
+}

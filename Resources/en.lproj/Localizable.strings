@@ -45,7 +45,8 @@
 "Volume keys" = "Volume keys";
 "Volume limit" = "Volume limit";
 "Volume step" = "Volume step";
-"⇧⌥ adjusts by 1. Volume follows audio output; brightness follows the active display." = "⇧⌥ adjusts by 1. Volume follows audio output; brightness follows the active display.";
+"⇧⌥ adjusts by 1. Brightness follows the active display." = "⇧⌥ adjusts by 1. Brightness follows the active display.";
+"Control monitor volume on non-USB-C inputs" = "Control monitor volume on non-USB-C inputs";
 "⌃⌘ + Volume Down: DisplayPort\n⌃⌘ + Volume Up: USB-C" = "⌃⌘ + Volume Down: DisplayPort\n⌃⌘ + Volume Up: USB-C";
 "Invalid S9 host, token, or certificate fingerprint." = "Invalid S9 host, token, or certificate fingerprint.";
 "A display operation is already in progress." = "A display operation is already in progress.";
@@ -117,3 +118,5 @@
 "Each media key combination must be unique." = "Each media key combination must be unique.";
 "Choose at least one modifier. Unassigned combinations keep their normal behavior. Lock-screen availability depends on macOS and the keyboard." = "Choose at least one modifier. Unassigned combinations keep their normal behavior. Lock-screen availability depends on macOS and the keyboard.";
 "S9 returned an unexpected power, volume, mute, or backlight state." = "S9 returned an unexpected power, volume, mute, or backlight state.";
+"Media keys need Accessibility access." = "Media keys need Accessibility access.";
+"Revert" = "Revert";

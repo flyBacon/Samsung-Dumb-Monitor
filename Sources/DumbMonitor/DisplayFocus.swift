@@ -40,6 +40,7 @@ private func focusedWindowChanged(_ observer: AXObserver, _ element: AXUIElement
 final class DisplayFocusMonitor: ObservableObject {
     @Published private(set) var displays: [MonitorDisplay] = []
     @Published private(set) var focusedUUID: String?
+    private(set) var onlineDisplayUUIDs: Set<String> = []
     var onDisplaysChanged: (() -> Void)?
     var enabled = false
     private var task: Task<Void, Never>?
@@ -70,6 +71,7 @@ final class DisplayFocusMonitor: ObservableObject {
     }
 
     func reloadDisplays() {
+        onlineDisplayUUIDs = Set(DisplayInventory.online().map(DisplayInventory.uuid))
         displays = NSScreen.screens.compactMap { screen in
             guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return nil }
             let id = number.uint32Value

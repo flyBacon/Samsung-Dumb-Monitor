@@ -116,3 +116,14 @@ private final class MemoryDefaults: UserDefaults, @unchecked Sendable {
     #expect(restored.mediaConfiguration.bindings.first?.command == .powerOff)
     #expect(!restored.media.isRunning)
 }
+
+@Test @MainActor func volumeOnOtherInputsDefaultsOffAndPersists() {
+    let defaults = MemoryDefaults()
+    let model = MonitorModel(defaults: defaults, automaticServices: false)
+    defer { model.stop() }
+    #expect(!model.volumeOnOtherInputs)
+    model.volumeOnOtherInputs = true
+    let restored = MonitorModel(defaults: defaults, automaticServices: false)
+    defer { restored.stop() }
+    #expect(restored.volumeOnOtherInputs)
+}

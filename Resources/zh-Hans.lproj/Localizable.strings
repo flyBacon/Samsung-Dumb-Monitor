@@ -45,7 +45,8 @@
 "Volume keys" = "音量键";
 "Volume limit" = "音量上限";
 "Volume step" = "音量步进";
-"⇧⌥ adjusts by 1. Volume follows audio output; brightness follows the active display." = "⇧⌥ 细调 ±1。音量键跟随音频输出，亮度键跟随当前活动显示器。";
+"⇧⌥ adjusts by 1. Brightness follows the active display." = "⇧⌥ 细调 ±1。亮度键跟随当前活动显示器。";
+"Control monitor volume on non-USB-C inputs" = "使用非 USB-C 输入源时也控制显示器音量";
 "⌃⌘ + Volume Down: DisplayPort\n⌃⌘ + Volume Up: USB-C" = "⌃⌘＋音量减：DisplayPort\n⌃⌘＋音量加：USB-C";
 "Invalid S9 host, token, or certificate fingerprint." = "显示器地址、token 或证书指纹无效。";
 "A display operation is already in progress." = "另一项显示器操作正在进行。";
@@ -117,3 +118,5 @@
 "Each media key combination must be unique." = "媒体按键组合不可重复。";
 "Choose at least one modifier. Unassigned combinations keep their normal behavior. Lock-screen availability depends on macOS and the keyboard." = "至少选择一个修饰键。未分配的组合保持原有行为；锁屏可用性取决于 macOS 和键盘。";
 "S9 returned an unexpected power, volume, mute, or backlight state." = "S9 返回了意外的电源、音量、静音或背光状态。";
+"Media keys need Accessibility access." = "控制媒体键需要辅助功能权限。";
+"Revert" = "撤销更改";

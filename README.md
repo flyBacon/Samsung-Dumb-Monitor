@@ -24,10 +24,12 @@ Or build from source with Swift 6 / Xcode 16 or newer. No package dependencies.
 swift test -c release
 ```
 
+Local builds use your Apple Development identity automatically if exactly one is available. Otherwise, set `CODE_SIGN_IDENTITY` to the same Apple code-signing identity on each build so macOS can recognize updates and retain Accessibility permission.
+
 Open `Dumb Monitor.app` (`build/` for a source build), enter your monitor's LAN address and approve pairing on the monitor.
 
 Keyboard control needs Accessibility permission.
-Volume keys follow the selected audio output; brightness keys follow the active display.
+Volume keys follow the selected audio output. An optional setting also routes them to the connected monitor while it shows another input, such as DisplayPort. Brightness keys follow the active display.
 
 Assign shortcuts to inputs, Power On and Standby. Input switching sends `powerOn` first by default (optional); it waits only for the command response, with no extra wake polling or delay.
 

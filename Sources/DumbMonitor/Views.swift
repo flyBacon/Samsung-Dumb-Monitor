@@ -85,10 +85,22 @@ struct SettingsView: View {
     @ObservedObject var focus: DisplayFocusMonitor
     let clearLocalData: () -> Void
     @State private var editingInputs = false
-    @State private var editingMedia = false
 
     var body: some View {
         Form {
+            if !model.accessibilityGranted {
+                Section {
+                    HStack(spacing: 10) {
+                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                        Text(L("Media keys need Accessibility access.")).font(.headline)
+                        Spacer()
+                        Button(L("Allow Accessibility…")) {
+                            model.media.requestPermission()
+                            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
+                        }.buttonStyle(.borderedProminent)
+                    }
+                }
+            }
             Section {
                 HStack {
                     TextField(L("Monitor address"), text: $model.host)
@@ -117,6 +129,8 @@ struct SettingsView: View {
                     }
                 }
                 .disabled(!model.volumeKeys)
+                Toggle(L("Control monitor volume on non-USB-C inputs"), isOn: $model.volumeOnOtherInputs)
+                    .disabled(!model.volumeKeys)
                 Toggle(L("Brightness keys"), isOn: $model.brightnessKeys)
                 integerRow(L("Brightness step"), value: $model.brightnessStep, range: 1...50)
                 Picker(L("Monitor display"), selection: $model.displayUUID) {
@@ -126,13 +140,7 @@ struct SettingsView: View {
                         Text(L("Monitor (disconnected)")).tag(model.displayUUID)
                     }
                 }
-                if (model.volumeKeys || model.brightnessKeys || model.inputMediaKeys) && !model.mediaKeysRunning {
-                    Button(L("Allow Accessibility…")) {
-                        model.updateMediaKeys(requestPermission: true)
-                        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
-                    }
-                }
-                Text(L("⇧⌥ adjusts by 1. Volume follows audio output; brightness follows the active display."))
+                Text(L("⇧⌥ adjusts by 1. Brightness follows the active display."))
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section(L("Input sources")) {
@@ -155,7 +163,9 @@ struct SettingsView: View {
             }
             Section(L("Media shortcuts")) {
                 Toggle(L("Enable media shortcuts"), isOn: $model.inputMediaKeys)
-                Button(L("Edit Media Shortcuts…")) { editingMedia = true }
+                MediaShortcutsEditor(configuration: model.mediaConfiguration, inputs: model.inputConfiguration,
+                                     save: model.updateMediaConfiguration)
+                    .id(model.inputConfiguration.sources.map(\.id))
                 if let message = shortcuts.registrationMessage { Text(message).font(.caption).foregroundStyle(.red) }
             }
             Section {
@@ -170,10 +180,9 @@ struct SettingsView: View {
                 model.updateInputConfiguration($0)
             }
         }
-        .sheet(isPresented: $editingMedia) {
-            MediaShortcutsEditor(configuration: model.mediaConfiguration, inputs: model.inputConfiguration) {
-                model.updateMediaConfiguration($0)
-            }
+        .onAppear { model.updateMediaKeys() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            model.updateMediaKeys()
         }
     }
 

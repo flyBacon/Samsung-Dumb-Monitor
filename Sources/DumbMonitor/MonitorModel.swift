@@ -17,6 +17,7 @@ final class MonitorModel: ObservableObject {
     @Published var error: String?
     @Published var host = ""
     @Published var pairing = false
+    @Published private(set) var accessibilityGranted = AXIsProcessTrusted()
     @Published var mediaKeysRunning = false
     @Published var loginEnabled = SMAppService.mainApp.status == .enabled
     @Published private var storedVolumeLimit: Int
@@ -54,6 +55,9 @@ final class MonitorModel: ObservableObject {
     }
     @Published var volumeKeys: Bool {
         didSet { if !stopped { defaults.set(volumeKeys, forKey: "volumeKeys"); updateMediaKeys() } }
+    }
+    @Published var volumeOnOtherInputs: Bool {
+        didSet { if !stopped { defaults.set(volumeOnOtherInputs, forKey: "volumeOnOtherInputs") } }
     }
     @Published var brightnessKeys: Bool {
         didSet { if !stopped { defaults.set(brightnessKeys, forKey: "brightnessKeys"); updateMediaKeys() } }
@@ -103,6 +107,7 @@ final class MonitorModel: ObservableObject {
     private var confirmedBrightness = 50
     private var confirmedMuted = false
     private var confirmedInput: S9Input?
+    private var lastInputRead = Date.distantPast
     private var lastAudioRead = Date.distantPast
     private var lastBrightnessRead = Date.distantPast
     private var polling: Task<Void, Never>?
@@ -127,6 +132,7 @@ final class MonitorModel: ObservableObject {
         storedBrightnessStep = savedBrightnessStep == 0 ? 3 : min(50, max(1, savedBrightnessStep))
         displayUUID = defaults.string(forKey: "displayUUID") ?? ""
         audioUID = defaults.string(forKey: "audioUID") ?? ""
+        volumeOnOtherInputs = defaults.bool(forKey: "volumeOnOtherInputs")
         volumeKeys = defaults.bool(forKey: "volumeKeys")
         brightnessKeys = defaults.bool(forKey: "brightnessKeys")
         inputMediaKeys = defaults.bool(forKey: "inputMediaKeys")
@@ -140,7 +146,7 @@ final class MonitorModel: ObservableObject {
         media.canHandle = { [weak self] action in
             guard let self, configured, canAdjust, !pairing, !recordingShortcut else { return false }
             if action.isAudio {
-                return volumeKeys && !audioUID.isEmpty && audio.defaultUID == audioUID
+                return keyboardAudioEligible
                     && Date().timeIntervalSince(lastAudioRead) < 25
             }
             return brightnessKeys && focus.isFocused(displayUUID) && Date().timeIntervalSince(lastBrightnessRead) < 25
@@ -278,6 +284,7 @@ final class MonitorModel: ObservableObject {
             power = try await controller.currentPower()
             guard !stopped else { return }
             if power == .off {
+                lastInputRead = .distantPast
                 connected = true; error = nil
                 return
             }
@@ -292,6 +299,7 @@ final class MonitorModel: ObservableObject {
             if pendingBrightness == nil { brightness = backlight }
             let source = try await controller.currentInput()
             guard !stopped else { return }
+            lastInputRead = Date()
             confirmedInput = source
             if pendingInput == nil { input = source }
             connected = true; error = nil
@@ -356,8 +364,20 @@ final class MonitorModel: ObservableObject {
         startPump()
     }
 
+    private var keyboardAudioEligible: Bool {
+        routesVolumeKeys(defaultOutput: audio.defaultUID, onlineDisplays: focus.onlineDisplayUUIDs)
+    }
+
+    func routesVolumeKeys(defaultOutput: String, onlineDisplays: Set<String>) -> Bool {
+        guard volumeKeys, canAdjust else { return false }
+        if !audioUID.isEmpty, audioUID == defaultOutput { return true }
+        guard volumeOnOtherInputs, !displayUUID.isEmpty, onlineDisplays.contains(displayUUID),
+              let source = confirmedInput, source == input, source != .usbC else { return false }
+        return Date().timeIntervalSince(lastInputRead) < 25
+    }
+
     private func discardIneligibleKeyboardAudio() {
-        guard !volumeKeys || audio.defaultUID != audioUID else { return }
+        guard !keyboardAudioEligible else { return }
         if !keyboardVolumeSteps.isEmpty {
             pendingVolume = nil; keyboardVolumeSteps.removeAll(); volume = confirmedVolume
         }
@@ -403,6 +423,7 @@ final class MonitorModel: ObservableObject {
                     if let target = pendingPower {
                         pendingPower = nil
                         power = try await controller.setPower(target)
+                        if power == .off { lastInputRead = .distantPast }
                     } else if let target = pendingInput {
                         pendingInput = nil
                         if wakeBeforeInput {
@@ -413,6 +434,7 @@ final class MonitorModel: ObservableObject {
                             if pendingPower == .off || pendingInput != nil { continue }
                         }
                         let result = try await controller.setInput(target)
+                        lastInputRead = Date()
                         confirmedInput = result
                         if pendingInput == nil { input = result }
                     } else if let target = pendingVolume {
@@ -466,15 +488,17 @@ final class MonitorModel: ObservableObject {
 
     private func failed(_ failure: Error) {
         guard !stopped else { return }
+        lastInputRead = .distantPast
         connected = false
         error = LF("Connection failed: %@", failure.localizedDescription)
     }
 
-    func updateMediaKeys(requestPermission: Bool = false) {
+    func updateMediaKeys() {
         guard !stopped, automaticServices else { return }
+        let trusted = AXIsProcessTrusted()
+        if accessibilityGranted != trusted { accessibilityGranted = trusted }
         focus.enabled = brightnessKeys
-        guard volumeKeys || brightnessKeys || inputMediaKeys else { media.stop(); mediaKeysRunning = false; return }
-        if requestPermission { media.requestPermission() }
+        guard trusted, volumeKeys || brightnessKeys || inputMediaKeys else { media.stop(); mediaKeysRunning = false; return }
         mediaKeysRunning = media.start()
     }
 
